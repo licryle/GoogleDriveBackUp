@@ -38,7 +38,7 @@ import java.util.Date
 import java.util.concurrent.CancellationException
 
 // Must be constructed during Fragment creation
-class GoogleDriveBackup(val fragment: Fragment, val activity: Activity, val appName: String) {
+class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity, val appName: String) {
     private val listeners = mutableListOf<GoogleDriveBackupInterface>()
 
     private val scopes = Collections.singletonList(Scope(DriveScopes.DRIVE_APPDATA))
@@ -154,11 +154,6 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: Activity, val appN
 
         if (driveService == null) {
             triggerOnBackupFailed(Exception("No credentials - Login first"))
-            return
-        }
-
-        if (activity !is ComponentActivity) {
-            triggerOnBackupFailed(Exception("Activity isn't a lifecycle owner"))
             return
         }
 
@@ -288,11 +283,6 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: Activity, val appN
         if (driveService == null)
             throw Exception("No credentials - Login first")
 
-        if (activity !is ComponentActivity) {
-            triggerOnRestoreFailed(Exception("Activity isn't a lifecycle owner"))
-            return
-        }
-
         activity.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val files = listBackedUpFiles()
@@ -330,11 +320,6 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: Activity, val appN
 
         if (driveService == null) {
             triggerOnRestoreFailed(Exception("No credentials - Login first"))
-            return
-        }
-
-        if (activity !is ComponentActivity) {
-            triggerOnRestoreFailed(Exception("Activity isn't a lifecycle owner"))
             return
         }
 
