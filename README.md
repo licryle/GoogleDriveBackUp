@@ -75,20 +75,35 @@ Then, when you want to start the action, call login()
 ```
 
 The callbacks will lead you to the rest, in particular onReady() is a good place to have the files
-listed for upload, for example:
+listed for upload or download, but also in a more Kotlinic way, login supports a success callBack:
 ```
-    override fun onReady() {
-        val sourcePath =
-            "${requireContext().filesDir.path}/../databases/${ChineseWordsDatabase.DATABASE_FILE}"
-
-        gDriveBackUp.backup(
-            listOf(GoogleDriveBackupFile(
-                "database.sqlite",
-                "application/octet-stream",
-                FileInputStream(sourcePath),
-                File(sourcePath).length()))
-        )
-    }
+        gDriveBackUp.login { 
+            val sourcePath =
+                "${requireContext().filesDir.path}/../databases/${ChineseWordsDatabase.DATABASE_FILE}"
+    
+            gDriveBackUp.backup(
+                listOf(GoogleDriveBackupFile.UploadFile(
+                    "database.sqlite",
+                    FileInputStream(sourcePath),
+                    "application/octet-stream",
+                    File(sourcePath).length()))
+            )
+        }
+```
+or
+```
+        gDriveBackUp.login { 
+            val sourcePath =
+                "${requireContext().cacheDir}/restore/${ChineseWordsDatabase.DATABASE_FILE}"
+            File(sourcePath).parentFile?.mkdirs()
+    
+            gDriveBackUp.restore(
+                listOf(GoogleDriveBackupFile.DownloadFile(
+                    "database.sqlite",
+                    FileOutputStream(sourcePath)
+                ))
+            )
+        }
 ```
 
 Callbacks at the moment:
@@ -96,11 +111,22 @@ Callbacks at the moment:
 interface GoogleDriveBackupInterface {
     fun onLogout()
     fun onReady()
+    fun onNoAccountSelected()
     fun onScopeDenied(e: Exception)
     fun onBackupStarted()
     fun onBackupProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesSent: Long, bytesTotal: Long)
     fun onBackupSuccess()
     fun onBackupCancelled()
     fun onBackupFailed(e: Exception)
+
+    fun onRestoreEmpty()
+    fun onRestoreStarted()
+    fun onRestoreProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesSent: Long, bytesTotal: Long)
+    fun onRestoreSuccess(files: List<GoogleDriveBackupFile.DownloadFile>)
+    fun onRestoreCancelled()
+    fun onRestoreFailed(e: Exception)
+
+    fun onDeletePreviousBackupFailed(e: Exception)
+    fun onDeletePreviousBackupSuccess()
 }
 ```
