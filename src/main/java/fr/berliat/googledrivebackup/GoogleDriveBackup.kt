@@ -3,7 +3,6 @@ package fr.berliat.googledrivebackup
 import android.accounts.Account
 import android.accounts.AccountManager
 import android.app.Activity
-import android.content.IntentSender
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
@@ -13,8 +12,8 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
-import com.google.android.gms.auth.api.identity.ClearTokenRequest
 import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.common.api.Scope
 import com.google.api.client.googleapis.media.MediaHttpDownloader
 import com.google.api.client.googleapis.media.MediaHttpDownloaderProgressListener
@@ -46,6 +45,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
         .builder()
         .setRequestedScopes(scopes)
         .build()
+
     private var _credentials : GoogleCredentials? = null
     val credentials : GoogleCredentials?
         get() = _credentials
@@ -58,8 +58,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
     // store the successfulCallback in a queue and deque on result and on error. With concurrency,
     // callbacks could still be executed in the wrong order, but at least should be all executed.
     private val loginSuccessCallbackQueue: ArrayDeque<(() -> Unit)?> = ArrayDeque()
-
-    val accountPickerLauncher: ActivityResultLauncher<IntentSenderRequest> = fragment.registerForActivityResult(
+    private val accountPickerLauncher: ActivityResultLauncher<IntentSenderRequest> = fragment.registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
             val loginSuccessCallback = loginSuccessCallbackQueue.removeFirstOrNull()
@@ -73,47 +72,47 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
             }
     }
 
-    fun logout() {
-        if (_credentials != null && _credentials!!.accessToken != null) {
-            Identity.getAuthorizationClient(activity)
-                .clearToken(ClearTokenRequest.builder().setToken(credentials!!.accessToken.tokenValue).build())
-                .addOnSuccessListener {
-                    Log.i(
-                        TAG,
-                        "Successfully removed the token from the cache"
-                    )
-                    _credentials = null
-                    driveService = null
-                    triggerOnLogout()
-                }
-                .addOnFailureListener { e -> Log.e(TAG, "Failed to clear token", e) }
-        }
+    val deviceAccounts: Array<Account>
+        get() = AccountManager.get(activity.applicationContext).accounts
+
+    fun logout(account: Account, successCallback: (() -> Unit)? = null) {
+        val revReq = RevokeAccessRequest.builder()
+            .setAccount(account)
+            .setScopes(scopes)
+            .build()
+
+        Identity.getAuthorizationClient(activity)
+            .revokeAccess(revReq)
+            .addOnSuccessListener {
+                Log.d(TAG, "Signed out: cached $account with Scopes $scopes cleared")
+                _credentials = null
+                driveService = null
+
+                triggerOnLogout()
+                successCallback?.invoke()
+            }
+            .addOnFailureListener { e ->
+                Log.e(TAG, "Sign out failed for account $account", e)
+            }
     }
 
-    fun getAuthorizedAccounts(): Array<Account> {
-        return AccountManager.get(activity.applicationContext).accounts
-    }
-
-    fun login(onlyFromCache: Boolean = false, successCallback: (() -> Unit)?) {
-
+    fun login(onlyFromCache: Boolean = false, successCallback: (() -> Unit)? = null) {
         Identity.getAuthorizationClient(activity)
             .authorize(authorizationRequest)
             .addOnSuccessListener { authorizationResult ->
                 if (authorizationResult.hasResolution()) {
+                    // Need to select which account
                     if (!onlyFromCache) {
                         val pendingIntent = authorizationResult.pendingIntent
-                        try {
-                            loginSuccessCallbackQueue.add(successCallback)
-                            accountPickerLauncher.launch(
-                                IntentSenderRequest.Builder(pendingIntent!!.intentSender).build()
-                            )
-                        } catch (e: IntentSender.SendIntentException) {
-                            loginSuccessCallbackQueue.remove { successCallback }
-                            Log.e("Authorization", "Failed to start authorization UI", e)
-                            triggerOnScopeDenied(e)
-                        }
+                        loginSuccessCallbackQueue.add(successCallback)
+                        accountPickerLauncher.launch(
+                            IntentSenderRequest.Builder(pendingIntent!!.intentSender).build()
+                        )
+                    } else {
+                        triggerOnNoAccountSelected()
                     }
                 } else {
+                    // Account was already selected, let's proceed
                     generateCredentialsOnLogin(authorizationResult)
 
                     triggerOnReady()
@@ -124,6 +123,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
     }
 
     private fun generateCredentialsOnLogin(auth: AuthorizationResult) {
+        auth.toGoogleSignInAccount()?.account?.name
         _credentials = GoogleCredentials.create(
             AccessToken(
                 auth.accessToken,
