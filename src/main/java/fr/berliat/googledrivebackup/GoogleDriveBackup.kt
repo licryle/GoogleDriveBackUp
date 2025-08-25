@@ -127,7 +127,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
         _credentials = GoogleCredentials.create(
             AccessToken(
                 auth.accessToken,
-                Date(System.currentTimeMillis() + 3600_000 * 24 * 365 * 10)
+                null
             )
         )
 
