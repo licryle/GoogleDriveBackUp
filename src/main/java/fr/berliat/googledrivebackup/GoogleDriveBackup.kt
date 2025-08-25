@@ -33,7 +33,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.Collections
-import java.util.Date
 import java.util.concurrent.CancellationException
 
 // Must be constructed during Fragment creation
@@ -53,6 +52,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
 
     private var isCancelledBackup = false
     private var isCancelledRestore = false
+    var transferChunkSize = MediaHttpUploader.DEFAULT_CHUNK_SIZE
 
     // This would ideally be more robust. Here before launching the account picker activity, we
     // store the successfulCallback in a queue and deque on result and on error. With concurrency,
@@ -186,6 +186,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
 
                     // Enable resumable upload
                     val uploader: MediaHttpUploader = file.mediaHttpUploader
+                    uploader.setChunkSize(transferChunkSize)
                     uploader.isDirectUploadEnabled = false  // resumable & progress tracking
 
                     // Add progress listener
@@ -374,6 +375,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                     // Enable resumable upload
                     val downloader: MediaHttpDownloader = file.mediaHttpDownloader
                     downloader.isDirectDownloadEnabled = false  // resumable & progress tracking
+                    downloader.setChunkSize(transferChunkSize)
 
                     // Add progress listener
                     downloader.progressListener = MediaHttpDownloaderProgressListener { downloader ->
