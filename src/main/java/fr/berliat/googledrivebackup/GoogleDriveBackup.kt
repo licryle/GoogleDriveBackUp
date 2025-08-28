@@ -347,7 +347,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                         f.name,
                         fileWanted.find { fw -> f.name == fw.name }!!.outputStream,
                         f.mimeType,
-                        f.size.toLong(),
+                        (f.get("size") as Long), // f.size returns the array size of 6 elements
                         f.id,
                         Instant.ofEpochMilli(f.modifiedTime.value))
                     }
