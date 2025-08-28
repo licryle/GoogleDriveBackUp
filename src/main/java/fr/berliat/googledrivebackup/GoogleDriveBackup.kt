@@ -419,12 +419,12 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                             MediaHttpDownloader.DownloadState.NOT_STARTED ->
                                 Log.d(TAG, "Download not started for ${f.name}")
                         }
-
-                        file.executeMediaAndDownloadTo(f.outputStream)
-
-                        // Close the output stream
-                        f.outputStream.close()
                     }
+
+                    file.executeMediaAndDownloadTo(f.outputStream)
+
+                    // Close the output stream
+                    f.outputStream.close()
                 }
 
                 withContext(Dispatchers.Main) {
