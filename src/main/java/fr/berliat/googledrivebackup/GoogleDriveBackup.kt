@@ -367,9 +367,6 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                 var fileReceived = 0
 
                 files.forEach { f ->
-                    if (isCancelledBackup)
-                        throw CancellationException("Restore cancelled")
-
                     val file = driveService!!.files().get(f.id)
 
                     // Enable resumable upload
@@ -395,7 +392,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                                     "Download ${downloader.numBytesDownloaded} bytes of ${f.name}"
                                 )
 
-                                if (isCancelledBackup)
+                                if (isCancelledRestore)
                                     throw CancellationException("Restore cancelled")
                             }
 
@@ -420,6 +417,9 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                                 Log.d(TAG, "Download not started for ${f.name}")
                         }
                     }
+
+                    if (isCancelledRestore)
+                        throw CancellationException("Restoration cancelled")
 
                     file.executeMediaAndDownloadTo(f.outputStream)
 
@@ -469,9 +469,9 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
     private fun triggerOnBackupFailed(e: Exception) { listeners.forEach { it -> it.onBackupFailed(e) } }
     private fun triggerOnRestoreEmpty() { listeners.forEach { it -> it.onRestoreEmpty() } }
     private fun triggerOnRestoreStarted() { listeners.forEach { it -> it.onRestoreStarted() } }
-    private fun triggerOnRestoreProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesSent: Long, bytesTotal: Long) {
+    private fun triggerOnRestoreProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesReceived: Long, bytesTotal: Long) {
         listeners.forEach { it ->
-            it.onRestoreProgress(fileName, fileIndex, fileCount, bytesSent, bytesTotal) }
+            it.onRestoreProgress(fileName, fileIndex, fileCount, bytesReceived, bytesTotal) }
     }
     private fun triggerOnRestoreSuccess(files: List<GoogleDriveBackupFile.DownloadFile>) { listeners.forEach { it -> it.onRestoreSuccess(files) } }
     private fun triggerOnRestoreCancelled() { listeners.forEach { it -> it.onRestoreCancelled() } }

@@ -13,7 +13,7 @@ interface GoogleDriveBackupInterface {
 
     fun onRestoreEmpty()
     fun onRestoreStarted()
-    fun onRestoreProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesSent: Long, bytesTotal: Long)
+    fun onRestoreProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesReceived: Long, bytesTotal: Long)
     fun onRestoreSuccess(files: List<GoogleDriveBackupFile.DownloadFile>)
     fun onRestoreCancelled()
     fun onRestoreFailed(e: Exception)
