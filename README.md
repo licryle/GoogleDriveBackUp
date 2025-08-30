@@ -78,8 +78,7 @@ The callbacks will lead you to the rest, in particular onReady() is a good place
 listed for upload or download, but also in a more Kotlinic way, login supports a success callBack:
 ```
         gDriveBackUp.login { 
-            val sourcePath =
-                "${requireContext().filesDir.path}/../databases/${ChineseWordsDatabase.DATABASE_FILE}"
+            val sourcePath = "${requireContext().filesDir.path}/file_to_backup"
     
             gDriveBackUp.backup(
                 listOf(GoogleDriveBackupFile.UploadFile(
@@ -93,8 +92,7 @@ listed for upload or download, but also in a more Kotlinic way, login supports a
 or
 ```
         gDriveBackUp.login { 
-            val sourcePath =
-                "${requireContext().cacheDir}/restore/${ChineseWordsDatabase.DATABASE_FILE}"
+            val sourcePath = "${requireContext().cacheDir}/restore/restored_file"
             File(sourcePath).parentFile?.mkdirs()
     
             gDriveBackUp.restore(
