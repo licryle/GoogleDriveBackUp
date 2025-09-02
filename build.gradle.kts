@@ -42,7 +42,7 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.2")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.3")
 
     // Let's have a gDrive Cloud Backup
     implementation("com.google.android.gms:play-services-auth:21.4.0")
