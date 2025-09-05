@@ -46,5 +46,5 @@ dependencies {
 
     // Let's have a gDrive Cloud Backup
     implementation("com.google.android.gms:play-services-auth:21.4.0")
-    implementation("com.google.apis:google-api-services-drive:v3-rev20240509-2.0.0")
+    implementation("com.google.apis:google-api-services-drive:v3-rev20250829-2.0.0")
 }
