@@ -14,6 +14,7 @@ import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.RevokeAccessRequest
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.api.Scope
 import com.google.api.client.googleapis.media.MediaHttpDownloader
 import com.google.api.client.googleapis.media.MediaHttpDownloaderProgressListener
@@ -97,29 +98,38 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
     }
 
     fun login(onlyFromCache: Boolean = false, successCallback: (() -> Unit)? = null) {
-        Identity.getAuthorizationClient(activity)
-            .authorize(authorizationRequest)
-            .addOnSuccessListener { authorizationResult ->
-                if (authorizationResult.hasResolution()) {
-                    // Need to select which account
-                    if (!onlyFromCache) {
-                        val pendingIntent = authorizationResult.pendingIntent
-                        loginSuccessCallbackQueue.add(successCallback)
-                        accountPickerLauncher.launch(
-                            IntentSenderRequest.Builder(pendingIntent!!.intentSender).build()
-                        )
+        ensureGoogleApiAvailability{
+            Identity.getAuthorizationClient(activity)
+                .authorize(authorizationRequest)
+                .addOnSuccessListener { authorizationResult ->
+                    if (authorizationResult.hasResolution()) {
+                        // Need to select which account
+                        if (!onlyFromCache) {
+                            val pendingIntent = authorizationResult.pendingIntent
+                            loginSuccessCallbackQueue.add(successCallback)
+                            accountPickerLauncher.launch(
+                                IntentSenderRequest.Builder(pendingIntent!!.intentSender).build()
+                            )
+                        } else {
+                            triggerOnNoAccountSelected()
+                        }
                     } else {
-                        triggerOnNoAccountSelected()
-                    }
-                } else {
-                    // Account was already selected, let's proceed
-                    generateCredentialsOnLogin(authorizationResult)
+                        // Account was already selected, let's proceed
+                        generateCredentialsOnLogin(authorizationResult)
 
-                    triggerOnReady()
-                    successCallback?.invoke()
+                        triggerOnReady()
+                        successCallback?.invoke()
+                    }
                 }
-            }
-            .addOnFailureListener { e -> triggerOnScopeDenied(e) }
+                .addOnFailureListener { e -> triggerOnScopeDenied(e) }
+        }
+    }
+
+    private fun ensureGoogleApiAvailability(successCallback: (() -> Unit)) {
+        GoogleApiAvailability.getInstance()
+            .makeGooglePlayServicesAvailable(activity)
+            .addOnSuccessListener { successCallback.invoke() } // Play services ready
+            .addOnFailureListener { e -> triggerOnNoGoogleAPI(e) }
     }
 
     private fun generateCredentialsOnLogin(auth: AuthorizationResult) {
@@ -455,30 +465,35 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
         listeners.remove(listener)
     }
 
-    private fun triggerOnLogout() { listeners.forEach { it -> it.onLogout() } }
-    private fun triggerOnReady() { listeners.forEach { it -> it.onReady() } }
-    private fun triggerOnNoAccountSelected() { listeners.forEach { it -> it.onNoAccountSelected() } }
-    private fun triggerOnScopeDenied(e: Exception) { listeners.forEach { it -> it.onScopeDenied(e) } }
-    private fun triggerOnBackupStarted() { listeners.forEach { it -> it.onBackupStarted() } }
+    private fun triggerOnLogout() { listeners.forEach { it.onLogout() } }
+    private fun triggerOnReady() { listeners.forEach { it.onReady() } }
+    private fun triggerOnNoGoogleAPI(e: Exception) { listeners.forEach { it.onNoGoogleAPI(e) }}
+    private fun triggerOnNoAccountSelected() { listeners.forEach { it.onNoAccountSelected() } }
+    private fun triggerOnScopeDenied(e: Exception) { listeners.forEach { it.onScopeDenied(e) } }
+    private fun triggerOnBackupStarted() { listeners.forEach { it.onBackupStarted() } }
     private fun triggerOnBackupProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesSent: Long, bytesTotal: Long) {
-        listeners.forEach { it ->
-            it.onBackupProgress(fileName, fileIndex, fileCount, bytesSent, bytesTotal) }
+        listeners.forEach {
+            it.onBackupProgress(fileName, fileIndex, fileCount, bytesSent, bytesTotal)
+        }
     }
-    private fun triggerOnBackupSuccess() { listeners.forEach { it -> it.onBackupSuccess() } }
-    private fun triggerOnBackupCancelled() { listeners.forEach { it -> it.onBackupCancelled() } }
-    private fun triggerOnBackupFailed(e: Exception) { listeners.forEach { it -> it.onBackupFailed(e) } }
-    private fun triggerOnRestoreEmpty() { listeners.forEach { it -> it.onRestoreEmpty() } }
-    private fun triggerOnRestoreStarted() { listeners.forEach { it -> it.onRestoreStarted() } }
+    private fun triggerOnBackupSuccess() { listeners.forEach { it.onBackupSuccess() } }
+    private fun triggerOnBackupCancelled() { listeners.forEach { it.onBackupCancelled() } }
+    private fun triggerOnBackupFailed(e: Exception) { listeners.forEach { it.onBackupFailed(e) } }
+    private fun triggerOnRestoreEmpty() { listeners.forEach { it.onRestoreEmpty() } }
+    private fun triggerOnRestoreStarted() { listeners.forEach { it.onRestoreStarted() } }
     private fun triggerOnRestoreProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesReceived: Long, bytesTotal: Long) {
-        listeners.forEach { it ->
-            it.onRestoreProgress(fileName, fileIndex, fileCount, bytesReceived, bytesTotal) }
+        listeners.forEach {
+            it.onRestoreProgress(fileName, fileIndex, fileCount, bytesReceived, bytesTotal)
+        }
     }
-    private fun triggerOnRestoreSuccess(files: List<GoogleDriveBackupFile.DownloadFile>) { listeners.forEach { it -> it.onRestoreSuccess(files) } }
-    private fun triggerOnRestoreCancelled() { listeners.forEach { it -> it.onRestoreCancelled() } }
-    private fun triggerOnRestoreFailed(e: Exception) { listeners.forEach { it -> it.onRestoreFailed(e) } }
+    private fun triggerOnRestoreSuccess(files: List<GoogleDriveBackupFile.DownloadFile>) {
+        listeners.forEach { it.onRestoreSuccess(files) }
+    }
+    private fun triggerOnRestoreCancelled() { listeners.forEach { it.onRestoreCancelled() } }
+    private fun triggerOnRestoreFailed(e: Exception) { listeners.forEach { it.onRestoreFailed(e) } }
 
-    private fun triggerOnDeletePreviousBackupSuccess() { listeners.forEach { it -> it.onDeletePreviousBackupSuccess() }}
-    private fun triggerOnDeletePreviousBackupFailed(e: Exception) { listeners.forEach { it -> it.onDeletePreviousBackupFailed(e) }}
+    private fun triggerOnDeletePreviousBackupSuccess() { listeners.forEach { it.onDeletePreviousBackupSuccess() }}
+    private fun triggerOnDeletePreviousBackupFailed(e: Exception) { listeners.forEach { it.onDeletePreviousBackupFailed(e) }}
 
     companion object {
         private const val TAG = "GoogleDriveBackUp"

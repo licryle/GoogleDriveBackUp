@@ -3,6 +3,7 @@ package fr.berliat.googledrivebackup
 interface GoogleDriveBackupInterface {
     fun onLogout()
     fun onReady()
+    fun onNoGoogleAPI(e : Exception)
     fun onNoAccountSelected()
     fun onScopeDenied(e: Exception)
     fun onBackupStarted()
