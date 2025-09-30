@@ -4,18 +4,21 @@ import android.accounts.Account
 import android.accounts.AccountManager
 import android.app.Activity
 import android.util.Log
+
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.RevokeAccessRequest
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.common.api.Scope
+
 import com.google.api.client.googleapis.media.MediaHttpDownloader
 import com.google.api.client.googleapis.media.MediaHttpDownloaderProgressListener
 import com.google.api.client.googleapis.media.MediaHttpUploader
@@ -29,16 +32,23 @@ import com.google.api.services.drive.model.File
 import com.google.auth.http.HttpCredentialsAdapter
 import com.google.auth.oauth2.AccessToken
 import com.google.auth.oauth2.GoogleCredentials
+
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
 import java.time.Instant
 import java.util.Collections
 import java.util.concurrent.CancellationException
 
 // Must be constructed during Fragment creation
 class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity, val appName: String) {
-    private val listeners = mutableListOf<GoogleDriveBackupInterface>()
+    private val _state = MutableStateFlow<GoogleDriveState>(GoogleDriveState.LoggedOut)
+    val state: StateFlow<GoogleDriveState> = _state
 
     private val scopes = Collections.singletonList(Scope(DriveScopes.DRIVE_APPDATA))
     private val authorizationRequest = AuthorizationRequest
@@ -51,8 +61,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
         get() = _credentials
     private var driveService : Drive? = null
 
-    private var isCancelledBackup = false
-    private var isCancelledRestore = false
+    private var isCancelled = false
     var transferChunkSize = MediaHttpUploader.DEFAULT_CHUNK_SIZE
 
     // This would ideally be more robust. Here before launching the account picker activity, we
@@ -69,7 +78,10 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                 login(false, loginSuccessCallback)
             } else {
                 Log.e(TAG, "Account selection canceled")
-                triggerOnNoAccountSelected()
+
+                activity.lifecycleScope.launch {
+                    _state.emit(GoogleDriveState.NoAccountSelected)
+                }
             }
     }
 
@@ -89,7 +101,10 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                 _credentials = null
                 driveService = null
 
-                triggerOnLogout()
+                activity.lifecycleScope.launch {
+                    _state.emit(GoogleDriveState.LoggedOut)
+                }
+
                 successCallback?.invoke()
             }
             .addOnFailureListener { e ->
@@ -111,25 +126,39 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                                 IntentSenderRequest.Builder(pendingIntent!!.intentSender).build()
                             )
                         } else {
-                            triggerOnNoAccountSelected()
+                            activity.lifecycleScope.launch {
+                                _state.emit(GoogleDriveState.NoAccountSelected)
+                            }
                         }
                     } else {
                         // Account was already selected, let's proceed
                         generateCredentialsOnLogin(authorizationResult)
 
-                        triggerOnReady()
+                        activity.lifecycleScope.launch {
+                            _state.emit(GoogleDriveState.Ready)
+                        }
                         successCallback?.invoke()
                     }
                 }
-                .addOnFailureListener { e -> triggerOnScopeDenied(e) }
+                .addOnFailureListener { e ->
+                    activity.lifecycleScope.launch {
+                        _state.emit(GoogleDriveState.ScopeDenied(e))
+                    }
+                }
         }
     }
 
     private fun ensureGoogleApiAvailability(successCallback: (() -> Unit)) {
         GoogleApiAvailability.getInstance()
             .makeGooglePlayServicesAvailable(activity)
-            .addOnSuccessListener { successCallback.invoke() } // Play services ready
-            .addOnFailureListener { e -> triggerOnNoGoogleAPI(e) }
+            .addOnSuccessListener {
+                successCallback.invoke()
+            } // Play services ready
+            .addOnFailureListener { e ->
+                activity.lifecycleScope.launch {
+                    _state.emit(GoogleDriveState.NoGoogleAPI(e))
+                }
+            }
     }
 
     private fun generateCredentialsOnLogin(auth: AuthorizationResult) {
@@ -155,23 +184,23 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
             .build()
     }
 
-    fun cancelBackup() {
-        isCancelledBackup = true
-    }
+    fun backup(files: List<GoogleDriveBackupFile.UploadFile>, onlyKeepMostRecent: Boolean = true)
+            : SharedFlow<BackupEvent> {
+        val _events = MutableSharedFlow<BackupEvent>(replay = 1, extraBufferCapacity = 10)
+        val events: SharedFlow<BackupEvent> = _events
 
-    fun backup(files: List<GoogleDriveBackupFile.UploadFile>, onlyKeepMostRecent: Boolean = true) {
-        isCancelledBackup = false
-
-        if (driveService == null) {
-            triggerOnBackupFailed(Exception("No credentials - Login first"))
-            return
-        }
+        isCancelled = false
 
         activity.lifecycleScope.launch(Dispatchers.IO) {
+            if (state.value != GoogleDriveState.Ready) {
+                _events.emit(BackupEvent.Failed(Exception("Not Ready for Backup")))
+                return@launch
+            }
+
             try {
-                withContext(Dispatchers.Main) {
-                    triggerOnBackupStarted()
-                }
+                _state.emit(GoogleDriveState.Busy)
+                Log.d(TAG, "Backup started")
+                _events.emit(BackupEvent.Started)
 
                 var bytesTotal = 0L
                 files.forEach {
@@ -203,18 +232,18 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                     uploader.progressListener = MediaHttpUploaderProgressListener { uploader ->
                         when (uploader.uploadState) {
                             MediaHttpUploader.UploadState.MEDIA_IN_PROGRESS -> {
-                                activity.lifecycleScope.launch(Dispatchers.Main) {
-                                    triggerOnBackupProgress(
+                                activity.lifecycleScope.launch {
+                                    _events.emit(BackupEvent.Progress(
                                         f.name,
                                         fileSent + 1,
                                         files.size,
                                         bytesSent + uploader.numBytesUploaded,
                                         bytesTotal
-                                    )
+                                    ))
                                 }
                                 Log.d(TAG, "Uploaded ${uploader.numBytesUploaded} bytes of ${f.name}")
 
-                                if (isCancelledBackup)
+                                if (isCancelled)
                                     throw CancellationException("Backup cancelled")
                             }
 
@@ -222,14 +251,14 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                                 bytesSent += f.size ?: 0
                                 fileSent += 1
 
-                                activity.lifecycleScope.launch(Dispatchers.Main) {
-                                    triggerOnBackupProgress(
+                                activity.lifecycleScope.launch {
+                                    _events.emit(BackupEvent.Progress(
                                         f.name,
                                         fileSent,
                                         files.size,
                                         bytesSent,
                                         bytesTotal
-                                    )
+                                    ))
                                 }
 
                                 Log.d(TAG, "Upload complete for ${f.name}")
@@ -246,7 +275,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                         }
                     }
 
-                    if (isCancelledBackup)
+                    if (isCancelled)
                         throw CancellationException("Backup cancelled")
 
                     val uploadedFile = file.execute()
@@ -259,23 +288,19 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                 if (onlyKeepMostRecent)
                     deletePreviousBackups()
 
-                withContext(Dispatchers.Main) {
-                    triggerOnBackupSuccess()
-                }
+                _events.emit(BackupEvent.Success)
             } catch (_: CancellationException) {
                 Log.d(TAG, "Backup cancelled")
-
-                withContext(Dispatchers.Main) {
-                    triggerOnBackupCancelled()
-                }
+                _events.emit(BackupEvent.Cancelled)
             } catch (e: Exception) {
                 Log.d(TAG, "Backup failed ${e.message}")
-
-                withContext(Dispatchers.Main) {
-                    triggerOnBackupFailed(e)
-                }
+                _events.emit(BackupEvent.Failed(e))
+            } finally {
+                _state.emit(GoogleDriveState.Ready)
             }
         }
+
+        return events
     }
 
     fun listBackedUpFiles(): List<File> {
@@ -290,11 +315,11 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
         return serverFiles.files
     }
 
-    fun deletePreviousBackups() {
+    suspend fun deletePreviousBackups(): Result<Unit>
+        = withContext(Dispatchers.IO) {
         if (driveService == null)
-            throw Exception("No credentials - Login first")
+            return@withContext Result.failure(Exception("No credentials - Login first"))
 
-        activity.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val files = listBackedUpFiles()
 
@@ -309,44 +334,38 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                     driveService!!.files().delete(f.id).execute()
                 }
 
-                withContext(Dispatchers.Main) {
-                    Log.d(TAG, "Delete previous backup success")
-                    triggerOnDeletePreviousBackupSuccess()
-                }
+                Log.d(TAG, "Delete previous backup success")
+                return@withContext Result.success(Unit)
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
                     Log.d(TAG, "Delete previous backup Failure")
-                    triggerOnDeletePreviousBackupFailed(e)
-                }
+                return@withContext Result.failure(e)
             }
         }
+
+    fun cancel() {
+        isCancelled = true
     }
 
-    fun cancelRestore() {
-        isCancelledRestore = true
-    }
+    fun restore(fileWanted: List<GoogleDriveBackupFile.DownloadFile>, onlyMostRecent: Boolean) : SharedFlow<RestoreEvent> {
+        val _events = MutableSharedFlow<RestoreEvent>(replay = 1, extraBufferCapacity = 10)
+        val events: SharedFlow<RestoreEvent> = _events
 
-    fun restore(fileWanted: List<GoogleDriveBackupFile.DownloadFile>, onlyMostRecent: Boolean = true) {
-        isCancelledRestore = false
-
-        if (driveService == null) {
-            triggerOnRestoreFailed(Exception("No credentials - Login first"))
-            return
-        }
+        isCancelled = false
 
         activity.lifecycleScope.launch(Dispatchers.IO) {
+            if (state.value != GoogleDriveState.Ready) {
+                _events.emit(RestoreEvent.Failed(Exception("Not Ready for Restore")))
+                return@launch
+            }
+
             try {
+                _state.emit(GoogleDriveState.Busy)
                 Log.d(TAG, "Restore started")
-                withContext(Dispatchers.Main) {
-                    triggerOnRestoreStarted()
-                }
+                _events.emit(RestoreEvent.Started)
 
                 val filesAvailable = listBackedUpFiles()
                 if (filesAvailable.isEmpty()) {
-                    withContext(Dispatchers.Main) {
-                    // No files on server
-                        triggerOnRestoreEmpty()
-                    }
+                    _events.emit(RestoreEvent.Empty)
                     return@launch
                 }
 
@@ -388,13 +407,15 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                     downloader.progressListener = MediaHttpDownloaderProgressListener { downloader ->
                         when (downloader.downloadState) {
                             MediaHttpDownloader.DownloadState.MEDIA_IN_PROGRESS -> {
-                                activity.lifecycleScope.launch(Dispatchers.Main) {
-                                    triggerOnRestoreProgress(
-                                        f.name,
-                                        fileReceived + 1,
-                                        files.size,
-                                        bytesReceived + downloader.numBytesDownloaded,
-                                        bytesTotal
+                                activity.lifecycleScope.launch {
+                                    _events.emit(
+                                        RestoreEvent.Progress(
+                                            f.name,
+                                            fileReceived + 1,
+                                            files.size,
+                                            bytesReceived + downloader.numBytesDownloaded,
+                                            bytesTotal
+                                        )
                                     )
                                 }
                                 Log.d(
@@ -402,7 +423,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                                     "Download ${downloader.numBytesDownloaded} bytes of ${f.name}"
                                 )
 
-                                if (isCancelledRestore)
+                                if (isCancelled)
                                     throw CancellationException("Restore cancelled")
                             }
 
@@ -410,13 +431,15 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                                 bytesReceived += f.size ?: 0
                                 fileReceived += 1
 
-                                activity.lifecycleScope.launch(Dispatchers.Main) {
-                                    triggerOnBackupProgress(
-                                        f.name,
-                                        fileReceived,
-                                        files.size,
-                                        bytesReceived,
-                                        bytesTotal
+                                activity.lifecycleScope.launch {
+                                    _events.emit(
+                                        RestoreEvent.Progress(
+                                            f.name,
+                                            fileReceived,
+                                            files.size,
+                                            bytesReceived,
+                                            bytesTotal
+                                        )
                                     )
                                 }
 
@@ -428,72 +451,28 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
                         }
                     }
 
-                    if (isCancelledRestore)
+                    if (isCancelled)
                         throw CancellationException("Restoration cancelled")
 
-                    file.executeMediaAndDownloadTo(f.outputStream)
-
-                    // Close the output stream
-                    f.outputStream.close()
+                    f.outputStream.use { output ->
+                        file.executeMediaAndDownloadTo(output)
+                    }
                 }
 
-                withContext(Dispatchers.Main) {
-                    triggerOnRestoreSuccess(files)
-                }
+                _events.emit(RestoreEvent.Success(files))
             } catch (_: CancellationException) {
                 Log.d(TAG, "Backup cancelled")
-
-                withContext(Dispatchers.Main) {
-                    triggerOnRestoreCancelled()
-                }
+                _events.emit(RestoreEvent.Cancelled)
             } catch (e: Exception) {
                 Log.d(TAG, "Restore failed ${e.message}")
-
-                withContext(Dispatchers.Main) {
-                    triggerOnRestoreFailed(e)
-                }
+                _events.emit(RestoreEvent.Failed(e))
+            } finally {
+                _state.emit(GoogleDriveState.Ready)
             }
         }
-    }
 
-    // Listeners
-    fun addListener(listener: GoogleDriveBackupInterface) {
-        listeners.add(listener)
+        return events
     }
-
-    fun removeListener(listener: GoogleDriveBackupInterface) {
-        listeners.remove(listener)
-    }
-
-    private fun triggerOnLogout() { listeners.forEach { it.onLogout() } }
-    private fun triggerOnReady() { listeners.forEach { it.onReady() } }
-    private fun triggerOnNoGoogleAPI(e: Exception) { listeners.forEach { it.onNoGoogleAPI(e) }}
-    private fun triggerOnNoAccountSelected() { listeners.forEach { it.onNoAccountSelected() } }
-    private fun triggerOnScopeDenied(e: Exception) { listeners.forEach { it.onScopeDenied(e) } }
-    private fun triggerOnBackupStarted() { listeners.forEach { it.onBackupStarted() } }
-    private fun triggerOnBackupProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesSent: Long, bytesTotal: Long) {
-        listeners.forEach {
-            it.onBackupProgress(fileName, fileIndex, fileCount, bytesSent, bytesTotal)
-        }
-    }
-    private fun triggerOnBackupSuccess() { listeners.forEach { it.onBackupSuccess() } }
-    private fun triggerOnBackupCancelled() { listeners.forEach { it.onBackupCancelled() } }
-    private fun triggerOnBackupFailed(e: Exception) { listeners.forEach { it.onBackupFailed(e) } }
-    private fun triggerOnRestoreEmpty() { listeners.forEach { it.onRestoreEmpty() } }
-    private fun triggerOnRestoreStarted() { listeners.forEach { it.onRestoreStarted() } }
-    private fun triggerOnRestoreProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesReceived: Long, bytesTotal: Long) {
-        listeners.forEach {
-            it.onRestoreProgress(fileName, fileIndex, fileCount, bytesReceived, bytesTotal)
-        }
-    }
-    private fun triggerOnRestoreSuccess(files: List<GoogleDriveBackupFile.DownloadFile>) {
-        listeners.forEach { it.onRestoreSuccess(files) }
-    }
-    private fun triggerOnRestoreCancelled() { listeners.forEach { it.onRestoreCancelled() } }
-    private fun triggerOnRestoreFailed(e: Exception) { listeners.forEach { it.onRestoreFailed(e) } }
-
-    private fun triggerOnDeletePreviousBackupSuccess() { listeners.forEach { it.onDeletePreviousBackupSuccess() }}
-    private fun triggerOnDeletePreviousBackupFailed(e: Exception) { listeners.forEach { it.onDeletePreviousBackupFailed(e) }}
 
     companion object {
         private const val TAG = "GoogleDriveBackUp"
