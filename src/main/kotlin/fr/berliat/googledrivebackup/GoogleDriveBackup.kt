@@ -456,6 +456,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
 
                     f.outputStream.use { output ->
                         file.executeMediaAndDownloadTo(output)
+                        output.flush()
                     }
                 }
 
