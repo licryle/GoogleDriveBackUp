@@ -5,11 +5,10 @@ import android.accounts.AccountManager
 import android.app.Activity
 import android.util.Log
 
-import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
@@ -46,7 +45,7 @@ import java.util.Collections
 import java.util.concurrent.CancellationException
 
 // Must be constructed during Fragment creation
-class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity, val appName: String) {
+class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
     private val _state = MutableStateFlow<GoogleDriveState>(GoogleDriveState.LoggedOut)
     val state: StateFlow<GoogleDriveState> = _state
 
@@ -68,7 +67,7 @@ class GoogleDriveBackup(val fragment: Fragment, val activity: ComponentActivity,
     // store the successfulCallback in a queue and deque on result and on error. With concurrency,
     // callbacks could still be executed in the wrong order, but at least should be all executed.
     private val loginSuccessCallbackQueue: ArrayDeque<(() -> Unit)?> = ArrayDeque()
-    private val accountPickerLauncher: ActivityResultLauncher<IntentSenderRequest> = fragment.registerForActivityResult(
+    private val accountPickerLauncher: ActivityResultLauncher<IntentSenderRequest> = activity.registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
             val loginSuccessCallback = loginSuccessCallbackQueue.removeFirstOrNull()
