@@ -130,13 +130,16 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                             }
                         }
                     } else {
-                        // Account was already selected, let's proceed
-                        generateCredentialsOnLogin(authorizationResult)
+                        activity.lifecycleScope.launch(Dispatchers.IO) {
+                            // Account was already selected, let's proceed
+                            generateCredentialsOnLogin(authorizationResult)
 
-                        activity.lifecycleScope.launch {
                             _state.emit(GoogleDriveState.Ready)
+
+                            withContext(Dispatchers.Main) {
+                                successCallback?.invoke()
+                            }
                         }
-                        successCallback?.invoke()
                     }
                 }
                 .addOnFailureListener { e ->
