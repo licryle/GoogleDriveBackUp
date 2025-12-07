@@ -33,6 +33,7 @@ import com.google.auth.oauth2.AccessToken
 import com.google.auth.oauth2.GoogleCredentials
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -60,8 +61,8 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
         get() = _credentials
     private var driveService : Drive? = null
 
-    private var isCancelled = false
     var transferChunkSize = MediaHttpUploader.DEFAULT_CHUNK_SIZE
+    var jobs : MutableList<Job> = java.util.concurrent.CopyOnWriteArrayList()
 
     // This would ideally be more robust. Here before launching the account picker activity, we
     // store the successfulCallback in a queue and deque on result and on error. With concurrency,
@@ -191,8 +192,6 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
         val _events = MutableSharedFlow<BackupEvent>(replay = 1, extraBufferCapacity = 10)
         val events: SharedFlow<BackupEvent> = _events
 
-        isCancelled = false
-
         activity.lifecycleScope.launch(Dispatchers.IO) {
             if (state.value != GoogleDriveState.Ready) {
                 _events.emit(BackupEvent.Failed(Exception("Not Ready for Backup")))
@@ -200,6 +199,7 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
             }
 
             try {
+                coroutineContext[Job]?.let { jobs.add(it) }
                 _state.emit(GoogleDriveState.Busy)
                 Log.d(TAG, "Backup started")
                 _events.emit(BackupEvent.Started)
@@ -228,7 +228,7 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                     // Enable resumable upload
                     val uploader: MediaHttpUploader = file.mediaHttpUploader
                     uploader.setChunkSize(transferChunkSize)
-                    uploader.isDirectUploadEnabled = false  // resumable & progress tracking
+                    uploader.isDirectUploadEnabled = false
 
                     // Add progress listener
                     uploader.progressListener = MediaHttpUploaderProgressListener { uploader ->
@@ -244,9 +244,6 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                                     ))
                                 }
                                 Log.d(TAG, "Uploaded ${uploader.numBytesUploaded} bytes of ${f.name}")
-
-                                if (isCancelled)
-                                    throw CancellationException("Backup cancelled")
                             }
 
                             MediaHttpUploader.UploadState.MEDIA_COMPLETE -> {
@@ -277,9 +274,6 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                         }
                     }
 
-                    if (isCancelled)
-                        throw CancellationException("Backup cancelled")
-
                     val uploadedFile = file.execute()
                     if (uploadedFile.id == null) {
                         throw Exception("File wasn't uploaded - ID missing")
@@ -299,6 +293,7 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                 _events.emit(BackupEvent.Failed(e))
             } finally {
                 _state.emit(GoogleDriveState.Ready)
+                jobs.remove(coroutineContext[Job])
             }
         }
 
@@ -345,14 +340,15 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
         }
 
     fun cancel() {
-        isCancelled = true
+        jobs.forEach {
+            it.cancel()
+        }
+        // No clear, the job should do it itself at the end
     }
 
     fun restore(fileWanted: List<GoogleDriveBackupFile.DownloadFile>, onlyMostRecent: Boolean) : SharedFlow<RestoreEvent> {
         val _events = MutableSharedFlow<RestoreEvent>(replay = 1, extraBufferCapacity = 10)
         val events: SharedFlow<RestoreEvent> = _events
-
-        isCancelled = false
 
         activity.lifecycleScope.launch(Dispatchers.IO) {
             if (state.value != GoogleDriveState.Ready) {
@@ -361,6 +357,7 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
             }
 
             try {
+                coroutineContext[Job]?.let { jobs.add(it) }
                 _state.emit(GoogleDriveState.Busy)
                 Log.d(TAG, "Restore started")
                 _events.emit(RestoreEvent.Started)
@@ -424,9 +421,6 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                                     TAG,
                                     "Download ${downloader.numBytesDownloaded} bytes of ${f.name}"
                                 )
-
-                                if (isCancelled)
-                                    throw CancellationException("Restore cancelled")
                             }
 
                             MediaHttpDownloader.DownloadState.MEDIA_COMPLETE -> {
@@ -453,9 +447,6 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                         }
                     }
 
-                    if (isCancelled)
-                        throw CancellationException("Restoration cancelled")
-
                     f.outputStream.use { output ->
                         file.executeMediaAndDownloadTo(output)
                         output.flush()
@@ -464,13 +455,14 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
 
                 _events.emit(RestoreEvent.Success(files))
             } catch (_: CancellationException) {
-                Log.d(TAG, "Backup cancelled")
+                Log.d(TAG, "Restoration cancelled")
                 _events.emit(RestoreEvent.Cancelled)
             } catch (e: Exception) {
                 Log.d(TAG, "Restore failed ${e.message}")
                 _events.emit(RestoreEvent.Failed(e))
             } finally {
                 _state.emit(GoogleDriveState.Ready)
+                jobs.remove(coroutineContext[Job])
             }
         }
 
