@@ -4,10 +4,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
-import androidx.fragment.app.FragmentActivity
-
-// Must be constructed during Fragment creation
-expect class GoogleDriveBackup(activity: FragmentActivity, appName: String) {
+expect class GoogleDriveBackup(appName: String) {
     val state: StateFlow<GoogleDriveState>
     val credentials : GoogleCredentials?
     

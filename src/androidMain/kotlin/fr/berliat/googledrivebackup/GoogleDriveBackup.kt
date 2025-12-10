@@ -48,7 +48,36 @@ import java.util.Collections
 import java.util.concurrent.CancellationException
 
 // Must be constructed during Fragment creation
-actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity, val appName: String) {
+actual class GoogleDriveBackup actual constructor(val appName: String) {
+    private lateinit var activity: FragmentActivity
+    private lateinit var accountPickerLauncher: ActivityResultLauncher<IntentSenderRequest>
+
+    constructor(activity: FragmentActivity, appName: String) : this(appName) {
+        this.activity = activity
+
+        accountPickerLauncher = requireActivity().registerForActivityResult(
+            ActivityResultContracts.StartIntentSenderForResult()
+        ) { result ->
+            val loginSuccessCallback = loginSuccessCallbackQueue.removeFirstOrNull()
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                Log.d(TAG, "User selected an account")
+                // Restarting the login, but now we have the right account
+                login(false, loginSuccessCallback)
+            } else {
+                Log.e(TAG, "Account selection canceled")
+
+                requireActivity().lifecycleScope.launch {
+                    _state.emit(GoogleDriveState.NoAccountSelected)
+                }
+            }
+        }
+    }
+
+    private fun requireActivity(): FragmentActivity {
+        check(::activity.isInitialized) { "GoogleDriveBackup must be created with (activity, appName)" }
+        return activity
+    }
+
     private val _state = MutableStateFlow<GoogleDriveState>(GoogleDriveState.LoggedOut)
     actual val state: StateFlow<GoogleDriveState> = _state
 
@@ -70,25 +99,9 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
     // store the successfulCallback in a queue and deque on result and on error. With concurrency,
     // callbacks could still be executed in the wrong order, but at least should be all executed.
     private val loginSuccessCallbackQueue: ArrayDeque<(() -> Unit)?> = ArrayDeque()
-    private val accountPickerLauncher: ActivityResultLauncher<IntentSenderRequest> = activity.registerForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-            val loginSuccessCallback = loginSuccessCallbackQueue.removeFirstOrNull()
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-                Log.d(TAG, "User selected an account")
-                // Restarting the login, but now we have the right account
-                login(false, loginSuccessCallback)
-            } else {
-                Log.e(TAG, "Account selection canceled")
-
-                activity.lifecycleScope.launch {
-                    _state.emit(GoogleDriveState.NoAccountSelected)
-                }
-            }
-    }
 
     actual val deviceAccounts: Array<Account>
-        get() = AccountManager.get(activity.applicationContext).accounts
+        get() = AccountManager.get(requireActivity().applicationContext).accounts
 
     actual fun logout(account: Account, successCallback: (() -> Unit)?) {
         val revReq = RevokeAccessRequest.builder()
@@ -96,14 +109,14 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
             .setScopes(scopes)
             .build()
 
-        Identity.getAuthorizationClient(activity)
+        Identity.getAuthorizationClient(requireActivity())
             .revokeAccess(revReq)
             .addOnSuccessListener {
                 Log.d(TAG, "Signed out: cached $account with Scopes $scopes cleared")
                 _credentials = null
                 driveService = null
 
-                activity.lifecycleScope.launch {
+                requireActivity().lifecycleScope.launch {
                     _state.emit(GoogleDriveState.LoggedOut)
                 }
 
@@ -128,12 +141,12 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
                                 IntentSenderRequest.Builder(pendingIntent!!.intentSender).build()
                             )
                         } else {
-                            activity.lifecycleScope.launch {
+                            requireActivity().lifecycleScope.launch {
                                 _state.emit(GoogleDriveState.NoAccountSelected)
                             }
                         }
                     } else {
-                        activity.lifecycleScope.launch(Dispatchers.IO) {
+                        requireActivity().lifecycleScope.launch(Dispatchers.IO) {
                             // Account was already selected, let's proceed
                             generateCredentialsOnLogin(authorizationResult)
 
@@ -146,7 +159,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
                     }
                 }
                 .addOnFailureListener { e ->
-                    activity.lifecycleScope.launch {
+                    requireActivity().lifecycleScope.launch {
                         _state.emit(GoogleDriveState.ScopeDenied(e))
                     }
                 }
@@ -155,12 +168,12 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
 
     private fun ensureGoogleApiAvailability(successCallback: (() -> Unit)) {
         GoogleApiAvailability.getInstance()
-            .makeGooglePlayServicesAvailable(activity)
+            .makeGooglePlayServicesAvailable(requireActivity())
             .addOnSuccessListener {
                 successCallback.invoke()
             } // Play services ready
             .addOnFailureListener { e ->
-                activity.lifecycleScope.launch {
+                requireActivity().lifecycleScope.launch {
                     _state.emit(GoogleDriveState.NoGoogleAPI(e))
                 }
             }
@@ -194,7 +207,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
         val _events = MutableSharedFlow<BackupEvent>(replay = 1, extraBufferCapacity = 10)
         val events: SharedFlow<BackupEvent> = _events
 
-        activity.lifecycleScope.launch(Dispatchers.IO) {
+        requireActivity().lifecycleScope.launch(Dispatchers.IO) {
             if (state.value != GoogleDriveState.Ready) {
                 _events.emit(BackupEvent.Failed(Exception("Not Ready for Backup")))
                 return@launch
@@ -240,7 +253,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
                         if (!job.isActive) throw CancellationException()
                         when (uploader.uploadState) {
                             MediaHttpUploader.UploadState.MEDIA_IN_PROGRESS -> {
-                                activity.lifecycleScope.launch {
+                                requireActivity().lifecycleScope.launch {
                                     _events.emit(BackupEvent.Progress(
                                         f.name,
                                         fileSent + 1,
@@ -256,7 +269,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
                                 bytesSent += f.size ?: 0
                                 fileSent += 1
 
-                                activity.lifecycleScope.launch {
+                                requireActivity().lifecycleScope.launch {
                                     _events.emit(BackupEvent.Progress(
                                         f.name,
                                         fileSent,
@@ -356,7 +369,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
         val _events = MutableSharedFlow<RestoreEvent>(replay = 1, extraBufferCapacity = 10)
         val events: SharedFlow<RestoreEvent> = _events
 
-        activity.lifecycleScope.launch(Dispatchers.IO) {
+        requireActivity().lifecycleScope.launch(Dispatchers.IO) {
             if (state.value != GoogleDriveState.Ready) {
                 _events.emit(RestoreEvent.Failed(Exception("Not Ready for Restore")))
                 return@launch
@@ -415,7 +428,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
                         if (!job.isActive) throw CancellationException()
                         when (downloader.downloadState) {
                             MediaHttpDownloader.DownloadState.MEDIA_IN_PROGRESS -> {
-                                activity.lifecycleScope.launch {
+                                requireActivity().lifecycleScope.launch {
                                     _events.emit(
                                         RestoreEvent.Progress(
                                             f.name,
@@ -436,7 +449,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
                                 bytesReceived += f.size ?: 0
                                 fileReceived += 1
 
-                                activity.lifecycleScope.launch {
+                                requireActivity().lifecycleScope.launch {
                                     _events.emit(
                                         RestoreEvent.Progress(
                                             f.name,
