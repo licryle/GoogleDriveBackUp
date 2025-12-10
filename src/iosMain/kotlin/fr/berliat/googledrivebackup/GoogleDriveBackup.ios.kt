@@ -4,6 +4,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 
 actual class GoogleDriveBackup actual constructor(val appName: String) {
     actual val state: StateFlow<GoogleDriveState> = MutableStateFlow(GoogleDriveState.LoggedOut)
@@ -18,7 +19,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
     actual fun backup(files: List<GoogleDriveBackupFile.UploadFile>, onlyKeepMostRecent: Boolean)
             : SharedFlow<BackupEvent> {
          // Return dummy flow or throw not implemented
-         return kotlinx.coroutines.flow.flowOf()
+         return MutableSharedFlow()
     }
     
     actual suspend fun deletePreviousBackups(): Result<Unit> = Result.success(Unit)
@@ -26,6 +27,6 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
     actual fun cancel() {}
     
     actual fun restore(fileWanted: List<GoogleDriveBackupFile.DownloadFile>, onlyMostRecent: Boolean) : SharedFlow<RestoreEvent> {
-         return kotlinx.coroutines.flow.flowOf()
+         return MutableSharedFlow()
     }
 }
