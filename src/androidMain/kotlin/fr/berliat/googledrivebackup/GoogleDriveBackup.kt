@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.Instant
@@ -200,7 +201,9 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
             }
 
             try {
-                coroutineContext[Job]?.let { jobs.add(it) }
+                val job = coroutineContext[Job]
+                if (job == null)
+                    throw IllegalStateException("Coroutine Job expected")
                 _state.emit(GoogleDriveState.Busy)
                 Log.d(TAG, "Backup started")
                 _events.emit(BackupEvent.Started)
@@ -213,6 +216,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
                 var fileSent = 0
 
                 files.forEach { f ->
+                    if (!job.isActive) throw CancellationException()
                     val metadata = File().apply {
                         name = f.name
                         parents = listOf("appDataFolder") // Optional, hidden folder
@@ -233,6 +237,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
 
                     // Add progress listener
                     uploader.progressListener = MediaHttpUploaderProgressListener { uploader ->
+                        if (!job.isActive) throw CancellationException()
                         when (uploader.uploadState) {
                             MediaHttpUploader.UploadState.MEDIA_IN_PROGRESS -> {
                                 activity.lifecycleScope.launch {
@@ -358,7 +363,8 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
             }
 
             try {
-                coroutineContext[Job]?.let { jobs.add(it) }
+                val job = coroutineContext[Job] ?: throw IllegalStateException("Coroutine Job expected")
+                jobs.add(job)
                 _state.emit(GoogleDriveState.Busy)
                 Log.d(TAG, "Restore started")
                 _events.emit(RestoreEvent.Started)
@@ -396,6 +402,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
                 var fileReceived = 0
 
                 files.forEach { f ->
+                    if (!isActive) throw CancellationException()
                     val file = driveService!!.files().get(f.id)
 
                     // Enable resumable upload
@@ -405,6 +412,7 @@ actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity
 
                     // Add progress listener
                     downloader.progressListener = MediaHttpDownloaderProgressListener { downloader ->
+                        if (!job.isActive) throw CancellationException()
                         when (downloader.downloadState) {
                             MediaHttpDownloader.DownloadState.MEDIA_IN_PROGRESS -> {
                                 activity.lifecycleScope.launch {
