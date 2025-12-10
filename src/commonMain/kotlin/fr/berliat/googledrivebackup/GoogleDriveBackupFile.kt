@@ -1,8 +1,9 @@
 package fr.berliat.googledrivebackup
 
-import java.io.InputStream
-import java.io.OutputStream
-import java.time.Instant
+import kotlinx.datetime.Instant
+
+import kotlinx.io.Sink
+import kotlinx.io.Source
 
 sealed class GoogleDriveBackupFile(
     val name: String,
@@ -11,14 +12,14 @@ sealed class GoogleDriveBackupFile(
 ) {
     class UploadFile(
         name: String,
-        val inputStream: InputStream,
+        val inputSource: Source,
         mimeType: String,
         size: Long
     ) : GoogleDriveBackupFile(name, mimeType, size)
 
     class DownloadFile(
         name: String,
-        val outputStream: OutputStream,
+        val outputSink: Sink,
         mimeType: String? = null,
         size: Long? = null,
         val id: String? = null,

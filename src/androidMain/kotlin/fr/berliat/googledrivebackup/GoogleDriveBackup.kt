@@ -30,7 +30,6 @@ import com.google.api.services.drive.DriveScopes
 import com.google.api.services.drive.model.File
 import com.google.auth.http.HttpCredentialsAdapter
 import com.google.auth.oauth2.AccessToken
-import com.google.auth.oauth2.GoogleCredentials
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,15 +39,17 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.Instant
+import kotlinx.io.asInputStream
+import kotlinx.io.asOutputStream
 
-import java.time.Instant
 import java.util.Collections
 import java.util.concurrent.CancellationException
 
 // Must be constructed during Fragment creation
-class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
+actual class GoogleDriveBackup actual constructor(val activity: FragmentActivity, val appName: String) {
     private val _state = MutableStateFlow<GoogleDriveState>(GoogleDriveState.LoggedOut)
-    val state: StateFlow<GoogleDriveState> = _state
+    actual val state: StateFlow<GoogleDriveState> = _state
 
     private val scopes = Collections.singletonList(Scope(DriveScopes.DRIVE_APPDATA))
     private val authorizationRequest = AuthorizationRequest
@@ -57,12 +58,12 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
         .build()
 
     private var _credentials : GoogleCredentials? = null
-    val credentials : GoogleCredentials?
+    actual val credentials : GoogleCredentials?
         get() = _credentials
     private var driveService : Drive? = null
 
-    var transferChunkSize = MediaHttpUploader.DEFAULT_CHUNK_SIZE
-    var jobs : MutableList<Job> = java.util.concurrent.CopyOnWriteArrayList()
+    actual var transferChunkSize = MediaHttpUploader.DEFAULT_CHUNK_SIZE
+    actual var jobs : MutableList<Job> = java.util.concurrent.CopyOnWriteArrayList()
 
     // This would ideally be more robust. Here before launching the account picker activity, we
     // store the successfulCallback in a queue and deque on result and on error. With concurrency,
@@ -85,10 +86,10 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
             }
     }
 
-    val deviceAccounts: Array<Account>
+    actual val deviceAccounts: Array<Account>
         get() = AccountManager.get(activity.applicationContext).accounts
 
-    fun logout(account: Account, successCallback: (() -> Unit)? = null) {
+    actual fun logout(account: Account, successCallback: (() -> Unit)?) {
         val revReq = RevokeAccessRequest.builder()
             .setAccount(account)
             .setScopes(scopes)
@@ -112,7 +113,7 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
             }
     }
 
-    fun login(onlyFromCache: Boolean = false, successCallback: (() -> Unit)? = null) {
+    actual fun login(onlyFromCache: Boolean, successCallback: (() -> Unit)?) {
         ensureGoogleApiAvailability{
             Identity.getAuthorizationClient(activity)
                 .authorize(authorizationRequest)
@@ -187,7 +188,7 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
             .build()
     }
 
-    fun backup(files: List<GoogleDriveBackupFile.UploadFile>, onlyKeepMostRecent: Boolean = true)
+    actual fun backup(files: List<GoogleDriveBackupFile.UploadFile>, onlyKeepMostRecent: Boolean)
             : SharedFlow<BackupEvent> {
         val _events = MutableSharedFlow<BackupEvent>(replay = 1, extraBufferCapacity = 10)
         val events: SharedFlow<BackupEvent> = _events
@@ -219,7 +220,7 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
 
                     val mediaContent = InputStreamContent(
                         f.mimeType,
-                        f.inputStream
+                        f.inputSource.asInputStream()
                     )
 
                     val file = driveService!!.files().create(metadata, mediaContent)
@@ -312,41 +313,41 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
         return serverFiles.files
     }
 
-    suspend fun deletePreviousBackups(): Result<Unit>
-        = withContext(Dispatchers.IO) {
+    actual suspend fun deletePreviousBackups(): Result<Unit>
+            = withContext(Dispatchers.IO) {
         if (driveService == null)
             return@withContext Result.failure(Exception("No credentials - Login first"))
 
-            try {
-                val files = listBackedUpFiles()
+        try {
+            val files = listBackedUpFiles()
 
-                val grouped = files.groupBy { it.name }
-                val olderFiles = grouped.flatMap { (_, group) ->
-                    val maxTime =
-                        group.maxOf { it.modifiedTime.value }     // find the most recent modifiedTime
-                    group.filter { it.modifiedTime.value < maxTime }       // keep only the older ones
-                }
-
-                olderFiles.forEach { f ->
-                    driveService!!.files().delete(f.id).execute()
-                }
-
-                Log.d(TAG, "Delete previous backup success")
-                return@withContext Result.success(Unit)
-            } catch (e: Exception) {
-                    Log.d(TAG, "Delete previous backup Failure")
-                return@withContext Result.failure(e)
+            val grouped = files.groupBy { it.name }
+            val olderFiles = grouped.flatMap { (_, group) ->
+                val maxTime =
+                    group.maxOf { it.modifiedTime.value }     // find the most recent modifiedTime
+                group.filter { it.modifiedTime.value < maxTime }       // keep only the older ones
             }
-        }
 
-    fun cancel() {
+            olderFiles.forEach { f ->
+                driveService!!.files().delete(f.id).execute()
+            }
+
+            Log.d(TAG, "Delete previous backup success")
+            return@withContext Result.success(Unit)
+        } catch (e: Exception) {
+            Log.d(TAG, "Delete previous backup Failure")
+            return@withContext Result.failure(e)
+        }
+    }
+    
+    actual fun cancel() {
         jobs.forEach {
             it.cancel()
         }
         // No clear, the job should do it itself at the end
     }
 
-    fun restore(fileWanted: List<GoogleDriveBackupFile.DownloadFile>, onlyMostRecent: Boolean) : SharedFlow<RestoreEvent> {
+    actual fun restore(fileWanted: List<GoogleDriveBackupFile.DownloadFile>, onlyMostRecent: Boolean) : SharedFlow<RestoreEvent> {
         val _events = MutableSharedFlow<RestoreEvent>(replay = 1, extraBufferCapacity = 10)
         val events: SharedFlow<RestoreEvent> = _events
 
@@ -373,11 +374,11 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                     .filter { f -> ! fileWanted.none { fw -> fw.name == f.name } }
                     .map { f -> GoogleDriveBackupFile.DownloadFile(
                         f.name,
-                        fileWanted.find { fw -> f.name == fw.name }!!.outputStream,
+                        fileWanted.find { fw -> f.name == fw.name }!!.outputSink,
                         f.mimeType,
                         (f.get("size") as Long), // f.size returns the array size of 6 elements
                         f.id,
-                        Instant.ofEpochMilli(f.modifiedTime.value))
+                        Instant.fromEpochMilliseconds(f.modifiedTime.value))
                     }
 
                 if (onlyMostRecent) {
@@ -447,9 +448,8 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
                         }
                     }
 
-                    f.outputStream.use { output ->
-                        file.executeMediaAndDownloadTo(output)
-                        output.flush()
+                    f.outputSink.asOutputStream().use { outputStream ->
+                        file.executeMediaAndDownloadTo(outputStream)
                     }
                 }
 
@@ -473,4 +473,3 @@ class GoogleDriveBackup(val activity: FragmentActivity, val appName: String) {
         private const val TAG = "GoogleDriveBackUp"
     }
 }
-
