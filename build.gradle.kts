@@ -50,7 +50,7 @@ kotlin {
         commonMain.dependencies {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1-0.6.x-compat")
-            implementation("io.github.vinceglb:filekit-core:0.12.0")
+            implementation("io.github.vinceglb:filekit-core:0.13.0")
         }
         androidMain.dependencies {
             implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.3") // Downgraded slightly to match stable if needed, sticking to what was there or close suitable for KMP
