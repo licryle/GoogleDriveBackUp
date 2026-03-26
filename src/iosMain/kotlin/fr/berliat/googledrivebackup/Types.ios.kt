@@ -1,4 +1,11 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 package fr.berliat.googledrivebackup
 
-actual class Account
-actual class GoogleCredentials
+import cocoapods.GoogleSignIn.GIDGoogleUser
+import kotlinx.cinterop.ExperimentalForeignApi
+
+@OptIn(ExperimentalForeignApi::class)
+actual typealias Account = GIDGoogleUser
+
+@OptIn(ExperimentalForeignApi::class)
+actual typealias GoogleCredentials = GIDGoogleUser

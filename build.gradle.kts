@@ -44,6 +44,8 @@ kotlin {
         framework {
             baseName = "googledrivebackup"
         }
+        pod("GoogleSignIn")
+        pod("GoogleAPIClientForREST/Drive")
     }
     
     sourceSets {

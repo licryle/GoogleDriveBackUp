@@ -1,13 +1,14 @@
 Pod::Spec.new do |spec|
     spec.name                     = 'googledrivebackup'
-    spec.version                  = '1.0.0'
+    spec.version                  = '2.0.0'
     spec.homepage                 = 'https://github.com/Licryle/HSKFlashcardsWidget'
     spec.source                   = { :http=> ''}
     spec.authors                  = ''
     spec.license                  = ''
-    spec.summary                  = 'Google Drive Backup'
+    spec.summary                  = 'Google Drive Backup module for HSK Flashcards'
     spec.vendored_frameworks      = 'build/cocoapods/framework/googledrivebackup.framework'
     spec.libraries                = 'c++'
+    spec.ios.deployment_target    = '16.0'
     spec.dependency 'GoogleAPIClientForREST/Drive'
     spec.dependency 'GoogleSignIn'
     if !Dir.exist?('build/cocoapods/framework/googledrivebackup.framework') || Dir.empty?('build/cocoapods/framework/googledrivebackup.framework')
