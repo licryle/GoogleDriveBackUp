@@ -8,8 +8,7 @@ import kotlinx.datetime.Instant
 import kotlinx.io.*
 import platform.Foundation.*
 import platform.UIKit.*
-import cocoapods.GoogleSignIn.*
-import cocoapods.GoogleAPIClientForREST.*
+import swiftPMImport.fr.berliat.googledrivebackup.googledrivebackup.*
 import kotlinx.cinterop.*
 import platform.posix.memcpy
 import kotlin.coroutines.resume
@@ -83,7 +82,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
             driveService = GTLRDriveService().apply {
                 // Bridge authorization protocol between pods
                 val auth = user.fetcherAuthorizer()
-                authorizer = (auth as Any) as? cocoapods.GoogleAPIClientForREST.GTMFetcherAuthorizationProtocolProtocol
+                authorizer = (auth as Any) as? swiftPMImport.fr.berliat.googledrivebackup.googledrivebackup.GTMFetcherAuthorizationProtocolProtocol
             }
             _state.value = GoogleDriveState.Ready
             successCallback?.invoke()

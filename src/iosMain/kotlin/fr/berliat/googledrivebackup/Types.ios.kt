@@ -1,7 +1,7 @@
 @file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 package fr.berliat.googledrivebackup
 
-import cocoapods.GoogleSignIn.GIDGoogleUser
+import swiftPMImport.fr.berliat.googledrivebackup.googledrivebackup.GIDGoogleUser
 import kotlinx.cinterop.ExperimentalForeignApi
 
 @OptIn(ExperimentalForeignApi::class)

@@ -1,8 +1,9 @@
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.multiplatform")
-    id("org.jetbrains.kotlin.native.cocoapods")
 }
+
+group = "fr.berliat.googledrivebackup"
 
 extensions.configure<com.android.build.api.dsl.LibraryExtension> {
     namespace = "fr.berliat.googledrivebackup"
@@ -26,6 +27,7 @@ extensions.configure<com.android.build.api.dsl.LibraryExtension> {
 }
 
 kotlin {
+    applyDefaultHierarchyTemplate()
     androidTarget {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
@@ -36,18 +38,19 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
-    cocoapods {
-        summary = "Google Drive Backup module for HSK Flashcards"
-        homepage = "https://github.com/Licryle/HSKFlashcardsWidget"
-        version = "1.0"
-        ios.deploymentTarget = "16.0"
-        framework {
-            baseName = "googledrivebackup"
-        }
-        pod("GoogleSignIn")
-        pod("GoogleAPIClientForREST/Drive")
+    swiftPMDependencies {
+        swiftPackage(
+            url = url("https://github.com/google/GoogleSignIn-iOS.git"),
+            version = from("9.2.0"),
+            products = listOf(product("GoogleSignIn"))
+        )
+        swiftPackage(
+            url = url("https://github.com/google/google-api-objectivec-client-for-rest.git"),
+            version = from("5.4.0"),
+            products = listOf(product("GoogleAPIClientForREST_Drive"))
+        )
     }
-    
+
     sourceSets {
         val commonMain by getting {
             dependencies {
@@ -63,13 +66,5 @@ kotlin {
                 implementation("com.google.apis:google-api-services-drive:v3-rev20250829-2.0.0")
             }
         }
-        
-        // Explicitly create iosMain and link it to targets
-        val iosMain by creating {
-            dependsOn(commonMain)
-        }
-        val iosX64Main by getting { dependsOn(iosMain) }
-        val iosArm64Main by getting { dependsOn(iosMain) }
-        val iosSimulatorArm64Main by getting { dependsOn(iosMain) }
     }
 }
