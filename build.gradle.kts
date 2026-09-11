@@ -1,36 +1,29 @@
 plugins {
-    id("com.android.library")
     id("org.jetbrains.kotlin.multiplatform")
+    id("com.android.kotlin.multiplatform.library")
 }
 
 group = "fr.berliat.googledrivebackup"
 
-extensions.configure<com.android.build.api.dsl.LibraryExtension> {
-    namespace = "fr.berliat.googledrivebackup"
-    compileSdk = 36
-
-    defaultConfig {
-        minSdk = 26
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    packaging {
-        resources {
-            excludes += "/META-INF/INDEX.LIST"
-            excludes += "/META-INF/DEPENDENCIES"
-        }
-    }
-}
-
 kotlin {
     applyDefaultHierarchyTemplate()
-    androidTarget {
+
+    android {
+        namespace = "fr.berliat.googledrivebackup"
+        compileSdk = 36
+        minSdk = 26
+
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            jvmTarget.set(
+                org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+            )
+        }
+
+        packaging {
+            resources {
+                excludes += "/META-INF/INDEX.LIST"
+                excludes += "/META-INF/DEPENDENCIES"
+            }
         }
     }
     
