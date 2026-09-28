@@ -99,18 +99,29 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
         successCallback?.invoke()
     }
 
-    actual fun backup(files: List<GoogleDriveBackupFile.UploadFile>, onlyKeepMostRecent: Boolean): SharedFlow<BackupEvent> {
+    actual fun backup(
+        files: List<GoogleDriveBackupFile.UploadFile>,
+        onlyKeepMostRecent: Boolean,
+        prepareFiles: (suspend () -> List<GoogleDriveBackupFile.UploadFile>?)?
+    ): SharedFlow<BackupEvent> {
         val events = MutableSharedFlow<BackupEvent>(replay = 1, extraBufferCapacity = 10)
         
-        val job = scope.launch(Dispatchers.Default) {
-            if (state.value != GoogleDriveState.Ready) {
+        if (state.value != GoogleDriveState.Ready) {
+            scope.launch {
                 events.emit(BackupEvent.Failed(Exception("Not Ready for Backup")))
-                return@launch
             }
+            return events
+        }
+        _state.value = GoogleDriveState.Busy
 
+        val job = scope.launch(Dispatchers.Default) {
             try {
-                withContext(Dispatchers.Main) { _state.emit(GoogleDriveState.Busy) }
                 events.emit(BackupEvent.Started)
+
+                val filesToUpload = prepareFiles?.invoke() ?: files
+                if (filesToUpload.isEmpty()) {
+                    throw Exception("No files to upload")
+                }
 
                 var bytesTotal = 0L
                 files.forEach { bytesTotal += it.size ?: 0 }

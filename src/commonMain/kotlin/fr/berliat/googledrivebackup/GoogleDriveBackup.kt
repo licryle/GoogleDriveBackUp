@@ -16,8 +16,11 @@ expect class GoogleDriveBackup(appName: String) {
     fun logout(account: Account, successCallback: (() -> Unit)? = null)
     fun login(onlyFromCache: Boolean = false, successCallback: (() -> Unit)? = null)
 
-    fun backup(files: List<GoogleDriveBackupFile.UploadFile>, onlyKeepMostRecent: Boolean = true)
-            : SharedFlow<BackupEvent>
+    fun backup(
+        files: List<GoogleDriveBackupFile.UploadFile> = emptyList(),
+        onlyKeepMostRecent: Boolean = true,
+        prepareFiles: (suspend () -> List<GoogleDriveBackupFile.UploadFile>?)? = null
+    ): SharedFlow<BackupEvent>
 
     suspend fun deletePreviousBackups(): Result<Unit>
 

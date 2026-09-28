@@ -202,25 +202,35 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
             .build()
     }
 
-    actual fun backup(files: List<GoogleDriveBackupFile.UploadFile>, onlyKeepMostRecent: Boolean)
-            : SharedFlow<BackupEvent> {
+    actual fun backup(
+        files: List<GoogleDriveBackupFile.UploadFile>,
+        onlyKeepMostRecent: Boolean,
+        prepareFiles: (suspend () -> List<GoogleDriveBackupFile.UploadFile>?)?
+    ): SharedFlow<BackupEvent> {
         val _events = MutableSharedFlow<BackupEvent>(replay = 1, extraBufferCapacity = 10)
         val events: SharedFlow<BackupEvent> = _events
 
-        backupScope.launch(Dispatchers.IO) {
-            if (state.value != GoogleDriveState.Ready) {
+        if (state.value != GoogleDriveState.Ready) {
+            backupScope.launch {
                 _events.emit(BackupEvent.Failed(Exception("Not Ready for Backup")))
-                return@launch
             }
+            return events
+        }
+        _state.value = GoogleDriveState.Busy
 
+        backupScope.launch(Dispatchers.IO) {
             try {
                 val job = coroutineContext[Job]
                 if (job == null)
                     throw IllegalStateException("Coroutine Job expected")
                 jobs.add(job)
-                _state.emit(GoogleDriveState.Busy)
                 Log.d(TAG, "Backup started")
                 _events.emit(BackupEvent.Started)
+
+                val filesToUpload = prepareFiles?.invoke() ?: files
+                if (filesToUpload.isEmpty()) {
+                    throw Exception("No files to upload")
+                }
 
                 var bytesTotal = 0L
                 files.forEach {
@@ -370,16 +380,18 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
         val _events = MutableSharedFlow<RestoreEvent>(replay = 1, extraBufferCapacity = 10)
         val events: SharedFlow<RestoreEvent> = _events
 
-        backupScope.launch(Dispatchers.IO) {
-            if (state.value != GoogleDriveState.Ready) {
+        if (state.value != GoogleDriveState.Ready) {
+            backupScope.launch {
                 _events.emit(RestoreEvent.Failed(Exception("Not Ready for Restore")))
-                return@launch
             }
+            return events
+        }
+        _state.value = GoogleDriveState.Busy
 
+        backupScope.launch(Dispatchers.IO) {
             try {
                 val job = coroutineContext[Job] ?: throw IllegalStateException("Coroutine Job expected")
                 jobs.add(job)
-                _state.emit(GoogleDriveState.Busy)
                 Log.d(TAG, "Restore started")
                 _events.emit(RestoreEvent.Started)
 
