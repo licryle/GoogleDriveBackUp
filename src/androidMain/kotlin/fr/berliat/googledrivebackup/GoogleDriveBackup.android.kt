@@ -3,12 +3,15 @@ package fr.berliat.googledrivebackup
 import android.accounts.Account
 import android.accounts.AccountManager
 import android.app.Activity
+import android.content.Context
 import android.util.Log
 
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
+
+import java.lang.ref.WeakReference
 
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
@@ -46,15 +49,22 @@ import kotlinx.io.asOutputStream
 import java.util.Collections
 import java.util.concurrent.CancellationException
 
-// Must be constructed during Fragment creation
+// Construct cheaply anywhere (needs only appName); call attachActivity()
+// from Activity.onCreate (before STARTED) before login()/logout().
 actual class GoogleDriveBackup actual constructor(val appName: String) {
-    private lateinit var activity: FragmentActivity
-    private lateinit var accountPickerLauncher: ActivityResultLauncher<IntentSenderRequest>
+    private lateinit var appContext: Context
+    private var activityRef: WeakReference<FragmentActivity>? = null
+    private var accountPickerLauncher: ActivityResultLauncher<IntentSenderRequest>? = null
 
-    constructor(activity: FragmentActivity, appName: String) : this(appName) {
-        this.activity = activity
+    /**
+     * Binds the account-picker launcher. Must be called from Activity.onCreate
+     * (before STARTED). Call again after activity recreation.
+     */
+    fun attachActivity(activity: FragmentActivity) {
+        appContext = activity.applicationContext
+        activityRef = WeakReference(activity)
 
-        accountPickerLauncher = requireActivity().registerForActivityResult(
+        accountPickerLauncher = activity.registerForActivityResult(
             ActivityResultContracts.StartIntentSenderForResult()
         ) { result ->
             val loginSuccessCallback = loginSuccessCallbackQueue.removeFirstOrNull()
@@ -72,9 +82,20 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
         }
     }
 
+    private fun requireAppContext(): Context {
+        check(::appContext.isInitialized) { "GoogleDriveBackup.attachActivity() must be called before any operation" }
+        return appContext
+    }
+
     private fun requireActivity(): FragmentActivity {
-        check(::activity.isInitialized) { "GoogleDriveBackup must be created with (activity, appName)" }
-        return activity
+        return activityRef?.get()
+            ?: error("GoogleDriveBackup.attachActivity() must be called from Activity.onCreate (re-attach after recreation)")
+    }
+
+    private fun requireAccountPicker(): ActivityResultLauncher<IntentSenderRequest> {
+        return checkNotNull(accountPickerLauncher) {
+            "GoogleDriveBackup.attachActivity() must be called from Activity.onCreate before login"
+        }
     }
 
     private val _state = MutableStateFlow<GoogleDriveState>(GoogleDriveState.LoggedOut)
@@ -101,7 +122,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
     private val loginSuccessCallbackQueue: ArrayDeque<(() -> Unit)?> = ArrayDeque()
 
     actual val deviceAccounts: Array<Account>
-        get() = AccountManager.get(requireActivity().applicationContext).accounts
+        get() = AccountManager.get(requireAppContext()).accounts
 
     actual fun logout(account: Account, successCallback: (() -> Unit)?) {
         val revReq = RevokeAccessRequest.builder()
@@ -109,7 +130,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
             .setScopes(scopes)
             .build()
 
-        Identity.getAuthorizationClient(requireActivity())
+        Identity.getAuthorizationClient(requireAppContext())
             .revokeAccess(revReq)
             .addOnSuccessListener {
                 Log.d(TAG, "Signed out: cached $account with Scopes $scopes cleared")
@@ -129,7 +150,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
 
     actual fun login(onlyFromCache: Boolean, successCallback: (() -> Unit)?) {
         ensureGoogleApiAvailability{
-            Identity.getAuthorizationClient(activity)
+            Identity.getAuthorizationClient(requireAppContext())
                 .authorize(authorizationRequest)
                 .addOnSuccessListener { authorizationResult ->
                     if (authorizationResult.hasResolution()) {
@@ -137,7 +158,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
                         if (!onlyFromCache) {
                             val pendingIntent = authorizationResult.pendingIntent
                             loginSuccessCallbackQueue.add(successCallback)
-                            accountPickerLauncher.launch(
+                            requireAccountPicker().launch(
                                 IntentSenderRequest.Builder(pendingIntent!!.intentSender).build()
                             )
                         } else {

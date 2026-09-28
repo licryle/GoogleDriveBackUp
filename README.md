@@ -50,81 +50,100 @@ Very simply, import the classes:
 ```
 import fr.berliat.googledrivebackup.GoogleDriveBackup
 import fr.berliat.googledrivebackup.GoogleDriveBackupFile
-import fr.berliat.googledrivebackup.GoogleDriveBackupInterface
 ```
 
-In your Fragment or Application's onCreate or onCreateView, initialize it with a listener
+Construct it anywhere, it is cheap and only needs your app name. Then bind it
+to your Activity's `onCreate` (before STARTED), so it can register its
+account-picker launcher. Re-attach after activity recreation:
+
 ```
-class ConfigFragment : Fragment(), GoogleDriveBackupInterface {
-    private lateinit var gDriveBackUp : GoogleDriveBackup
-    
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
+class MainActivity : FragmentActivity() {
+    private lateinit var gDriveBackup: GoogleDriveBackup
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         ...
-        gDriveBackUp = GoogleDriveBackup(this, requireActivity(), getString(R.string.app_name))
-        gDriveBackUp.addListener(this)
+        gDriveBackup = GoogleDriveBackup(getString(R.string.app_name))
+        gDriveBackup.attachActivity(this)
         ...
 ```
 
-Then, when you want to start the action, call login()
+The instance holds no Activity reference: all Drive calls run on the
+application context, only the account picker and Play-services resolution
+use the attached Activity at call time.
+
+Then, observe the state and call login(). `login(onlyFromCache = true)` only
+succeeds if an account was already authorized, otherwise it leads to
+`NoAccountSelected` and you should call `login()` to show the account picker:
 ```
-        gDriveBackUp.login()
+        lifecycleScope.launch {
+            gDriveBackup.state.collect { state ->
+                when (state) {
+                    is GoogleDriveState.Ready -> { /* list files, enable backup */ }
+                    is GoogleDriveState.NoAccountSelected -> gDriveBackup.login()
+                    ...
+                }
+            }
+        }
+
+        gDriveBackup.login(onlyFromCache = true)
 ```
 
-The callbacks will lead you to the rest, in particular onReady() is a good place to have the files
-listed for upload or download, but also in a more Kotlinic way, login supports a success callBack:
+Once `Ready`, back up or restore. Both return a `SharedFlow` of events,
+including progress:
 ```
-        gDriveBackUp.login { 
-            val sourcePath = "${requireContext().filesDir.path}/file_to_backup"
-    
-            gDriveBackUp.backup(
+        gDriveBackup.login {
+            val sourceFile = File("${filesDir.path}/file_to_backup")
+
+            gDriveBackup.backup(
                 listOf(GoogleDriveBackupFile.UploadFile(
                     "database.sqlite",
-                    FileInputStream(sourcePath),
+                    FileInputStream(sourceFile).asInputStream(),
                     "application/octet-stream",
-                    File(sourcePath).length()))
-            )
+                    sourceFile.length())),
+                onlyKeepMostRecent = true)
         }
 ```
 or
 ```
-        gDriveBackUp.login { 
-            val sourcePath = "${requireContext().cacheDir}/restore/restored_file"
-            File(sourcePath).parentFile?.mkdirs()
-    
-            gDriveBackUp.restore(
+        gDriveBackup.login {
+            val destFile = File("${cacheDir.path}/restore/restored_file")
+            destFile.parentFile?.mkdirs()
+
+            gDriveBackup.restore(
                 listOf(GoogleDriveBackupFile.DownloadFile(
                     "database.sqlite",
-                    FileOutputStream(sourcePath)
+                    FileOutputStream(destFile).asOutputStream()
                 ))
             )
         }
 ```
 
-Callbacks at the moment:
+States and events at the moment:
 ```
-interface GoogleDriveBackupInterface {
-    fun onLogout()
-    fun onReady()
-    fun onNoAccountSelected()
-    fun onScopeDenied(e: Exception)
-    fun onBackupStarted()
-    fun onBackupProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesSent: Long, bytesTotal: Long)
-    fun onBackupSuccess()
-    fun onBackupCancelled()
-    fun onBackupFailed(e: Exception)
+sealed class GoogleDriveState {
+    object LoggedOut
+    object Ready
+    object Busy
+    data class NoGoogleAPI(val exception: Exception)
+    object NoAccountSelected
+    data class ScopeDenied(val exception: Exception)
+}
 
-    fun onRestoreEmpty()
-    fun onRestoreStarted()
-    fun onRestoreProgress(fileName: String, fileIndex: Int, fileCount: Int, bytesSent: Long, bytesTotal: Long)
-    fun onRestoreSuccess(files: List<GoogleDriveBackupFile.DownloadFile>)
-    fun onRestoreCancelled()
-    fun onRestoreFailed(e: Exception)
+sealed class BackupEvent {
+    object Started
+    data class Progress(val fileName: String, val fileIndex: Int, val fileCount: Int, val bytesSent: Long, val bytesTotal: Long)
+    object Success
+    object Cancelled
+    data class Failed(val exception: Exception)
+}
 
-    fun onDeletePreviousBackupFailed(e: Exception)
-    fun onDeletePreviousBackupSuccess()
+sealed class RestoreEvent {
+    object Empty
+    object Started
+    data class Progress(val fileName: String, val fileIndex: Int, val fileCount: Int, val bytesReceived: Long, val bytesTotal: Long)
+    data class Success(val files: List<GoogleDriveBackupFile.DownloadFile>)
+    object Cancelled
+    data class Failed(val exception: Exception)
 }
 ```
