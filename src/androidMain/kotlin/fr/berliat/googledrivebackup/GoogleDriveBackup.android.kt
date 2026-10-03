@@ -224,7 +224,6 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
     }
 
     actual fun backup(
-        files: List<GoogleDriveBackupFile.UploadFile>,
         onlyKeepMostRecent: Boolean,
         prepareFiles: (suspend () -> List<GoogleDriveBackupFile.UploadFile>?)?
     ): SharedFlow<BackupEvent> {
@@ -248,19 +247,19 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
                 Log.d(TAG, "Backup started")
                 _events.emit(BackupEvent.Started)
 
-                val filesToUpload = prepareFiles?.invoke() ?: files
+                val filesToUpload = prepareFiles?.invoke() ?: emptyList()
                 if (filesToUpload.isEmpty()) {
                     throw Exception("No files to upload")
                 }
 
                 var bytesTotal = 0L
-                files.forEach {
+                filesToUpload.forEach {
                     bytesTotal += it.size ?: 0
                 }
                 var bytesSent = 0L
                 var fileSent = 0
 
-                files.forEach { f ->
+                filesToUpload.forEach { f ->
                     if (!job.isActive) throw CancellationException()
                     val metadata = File().apply {
                         name = f.name
@@ -289,7 +288,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
                                     _events.emit(BackupEvent.Progress(
                                         f.name,
                                         fileSent + 1,
-                                        files.size,
+                                        filesToUpload.size,
                                         bytesSent + uploader.numBytesUploaded,
                                         bytesTotal
                                     ))
@@ -305,7 +304,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
                                     _events.emit(BackupEvent.Progress(
                                         f.name,
                                         fileSent,
-                                        files.size,
+                                        filesToUpload.size,
                                         bytesSent,
                                         bytesTotal
                                     ))

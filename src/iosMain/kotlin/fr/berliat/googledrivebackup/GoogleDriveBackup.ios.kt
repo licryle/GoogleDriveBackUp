@@ -100,7 +100,6 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
     }
 
     actual fun backup(
-        files: List<GoogleDriveBackupFile.UploadFile>,
         onlyKeepMostRecent: Boolean,
         prepareFiles: (suspend () -> List<GoogleDriveBackupFile.UploadFile>?)?
     ): SharedFlow<BackupEvent> {
@@ -118,17 +117,17 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
             try {
                 events.emit(BackupEvent.Started)
 
-                val filesToUpload = prepareFiles?.invoke() ?: files
+                val filesToUpload = prepareFiles?.invoke() ?: emptyList()
                 if (filesToUpload.isEmpty()) {
                     throw Exception("No files to upload")
                 }
 
                 var bytesTotal = 0L
-                files.forEach { bytesTotal += it.size ?: 0 }
+                filesToUpload.forEach { bytesTotal += it.size ?: 0 }
                 var bytesSent = 0L
                 var fileSent = 0
 
-                for (f in files) {
+                for (f in filesToUpload) {
                     if (!isActive) throw CancellationException()
                     
                     val driveFile = GTLRDrive_File()
@@ -143,7 +142,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
                     val params = GTLRServiceExecutionParameters()
                     params.uploadProgressBlock = { _: GTLRServiceTicket?, written: ULong, _: ULong ->
                         this@GoogleDriveBackup.scope.launch {
-                            events.emit(BackupEvent.Progress(f.name, fileSent + 1, files.size, bytesSent + written.toLong(), bytesTotal))
+                            events.emit(BackupEvent.Progress(f.name, fileSent + 1, filesToUpload.size, bytesSent + written.toLong(), bytesTotal))
                         }
                     }
                     query.executionParameters = params
@@ -164,7 +163,7 @@ actual class GoogleDriveBackup actual constructor(val appName: String) {
                     
                     bytesSent += f.size ?: 0
                     fileSent++
-                    events.emit(BackupEvent.Progress(f.name, fileSent, files.size, bytesSent, bytesTotal))
+                    events.emit(BackupEvent.Progress(f.name, fileSent, filesToUpload.size, bytesSent, bytesTotal))
                 }
 
                 if (onlyKeepMostRecent) {
